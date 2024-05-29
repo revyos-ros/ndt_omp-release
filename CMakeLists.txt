@@ -1,190 +1,130 @@
-cmake_minimum_required(VERSION 3.10.0)
-project(fast_gicp)
+cmake_minimum_required(VERSION 3.10)
+project(ndt_omp)
 
-option(BUILD_VGICP_CUDA "Build GPU-powered VGICP" OFF)
-option(BUILD_apps "Build application programs" ON)
-option(BUILD_test "Build test programs" OFF)
-option(BUILD_PYTHON_BINDINGS "Build python bindings" OFF)
+add_definitions(-std=c++14)
+set(CMAKE_CXX_FLAGS "-std=c++14")
 
-set(CMAKE_BUILD_TYPE "Release")
+if (BUILD_WITH_MARCH_NATIVE)
+  add_compile_options(-march=native)
+else()
+  add_definitions(-msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2)
+  set(CMAKE_CXX_FLAGS "-msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2")
+endif()
 
-find_package(PCL REQUIRED)
-find_package(Eigen3 REQUIRED)
+# pcl 1.7 causes a segfault when it is built with debug mode
+set(CMAKE_BUILD_TYPE "RELEASE")
+
+find_package(PCL 1.7 REQUIRED)
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
-if(DEFINED ENV{ROS_VERSION})
-  set(ROS_VERSION $ENV{ROS_VERSION})
-endif()
-
-if(NOT BUILD_PYTHON_BINDINGS)
-  if(${ROS_VERSION})
-    if(${ROS_VERSION} EQUAL 1)
-      find_package(catkin)
-    elseif (${ROS_VERSION} EQUAL 2)
-      find_package(ament_cmake)
-    endif()
-  endif()
-endif()
+message(STATUS "PCL_INCLUDE_DIRS:" ${PCL_INCLUDE_DIRS})
+message(STATUS "PCL_LIBRARY_DIRS:" ${PCL_LIBRARY_DIRS})
+message(STATUS "PCL_DEFINITIONS:" ${PCL_DEFINITIONS})
 
 find_package(OpenMP)
 if (OPENMP_FOUND)
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif()
 
-if(BUILD_VGICP_CUDA)
-  find_package(CUDA REQUIRED)
-  include_directories(${CUDA_INCLUDE_DIRS})
-  link_directories(${CUDA_LIBRARY_DIRS})
-endif()
+if($ENV{ROS_VERSION} EQUAL 1)
+# ROS1
+find_package(catkin REQUIRED COMPONENTS
+  roscpp
+  pcl_ros
+)
 
 ###################################
 ## catkin specific configuration ##
 ###################################
-if(catkin_FOUND)
-  catkin_package(
-    INCLUDE_DIRS include
-    LIBRARIES fast_gicp
-  )
-endif()
+catkin_package(
+  INCLUDE_DIRS include
+  LIBRARIES ndt_omp
+)
 
 ###########
 ## Build ##
 ###########
-
-add_library(fast_gicp SHARED
-  src/fast_gicp/gicp/lsq_registration.cpp
-  src/fast_gicp/gicp/fast_gicp.cpp
-  src/fast_gicp/gicp/fast_gicp_st.cpp
-  src/fast_gicp/gicp/fast_vgicp.cpp
+include_directories(include)
+include_directories(
+  ${catkin_INCLUDE_DIRS}
 )
-target_link_libraries(fast_gicp
+
+add_library(ndt_omp
+  src/pclomp/voxel_grid_covariance_omp.cpp
+  src/pclomp/ndt_omp.cpp
+  src/pclomp/gicp_omp.cpp
+)
+
+add_executable(align
+  apps/align.cpp
+)
+add_dependencies(align
+  ndt_omp
+)
+target_link_libraries(align
+  ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
-)
-if (OPENMP_FOUND)
-    if (TARGET OpenMP::OpenMP_CXX)
-        target_link_libraries(fast_gicp OpenMP::OpenMP_CXX)
-    endif ()
-endif ()
-target_include_directories(fast_gicp PUBLIC
-  include
-  ${PCL_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIR}
+  ndt_omp
 )
 
-### APPS ###
-if(BUILD_apps)
-  add_executable(gicp_align src/align.cpp)
-  add_dependencies(gicp_align fast_gicp)
-  target_link_libraries(gicp_align
-    ${PCL_LIBRARIES}
-    fast_gicp
-  )
+#############
+## INSTALL ##
+#############
 
-  add_executable(gicp_kitti src/kitti.cpp)
-  add_dependencies(gicp_kitti fast_gicp)
-  target_link_libraries(gicp_kitti
-    ${PCL_LIBRARIES}
-    fast_gicp
-  )
+install(
+  TARGETS
+    ndt_omp
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+)
+
+# install headers
+install(DIRECTORY include/pclomp
+        DESTINATION ${CATKIN_GLOBAL_INCLUDE_DESTINATION})
+else()
+
+# ROS2
+find_package(ament_cmake_auto REQUIRED)
+ament_auto_find_build_dependencies()
+
+###########
+## Build ##
+###########
+include_directories(include)
+include_directories(
+  ${catkin_INCLUDE_DIRS}
+)
+
+add_library(ndt_omp
+  SHARED
+  src/pclomp/voxel_grid_covariance_omp.cpp
+  src/pclomp/ndt_omp.cpp
+  src/pclomp/gicp_omp.cpp
+)
+
+ament_export_targets(ndt_omp HAS_LIBRARY_TARGET)
+
+target_link_libraries(ndt_omp ${PCL_LIBRARIES})
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(ndt_omp OpenMP::OpenMP_CXX)
+else()
+  message(WARNING "OpenMP not found")
 endif()
 
-### Python bindings ###
-if(BUILD_PYTHON_BINDINGS)
-  add_subdirectory(thirdparty/pybind11)
-  pybind11_add_module(pygicp
-    src/python/main.cpp
-  )
-  target_include_directories(pygicp PUBLIC
-    include
-    ${PCL_INCLUDE_DIRS}
-    ${EIGEN3_INCLUDE_DIR}
-  )
-  target_link_libraries(pygicp PRIVATE
-    fast_gicp
-  )
-endif()
+install(
+  TARGETS
+    ndt_omp
+  EXPORT ndt_omp
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include
+)
 
-### CUDA ###
-if(BUILD_VGICP_CUDA)
-  set(CUDA_NVCC_FLAGS "--expt-relaxed-constexpr")
-  add_definitions(-DUSE_VGICP_CUDA)
-
-  cuda_add_library(fast_vgicp_cuda SHARED
-    src/fast_gicp/cuda/fast_vgicp_cuda.cu
-    src/fast_gicp/cuda/brute_force_knn.cu
-    src/fast_gicp/cuda/covariance_estimation.cu
-    src/fast_gicp/cuda/covariance_estimation_rbf.cu
-    src/fast_gicp/cuda/covariance_regularization.cu
-    src/fast_gicp/cuda/gaussian_voxelmap.cu
-    src/fast_gicp/cuda/find_voxel_correspondences.cu
-    src/fast_gicp/cuda/compute_derivatives.cu
-    src/fast_gicp/cuda/compute_mahalanobis.cu
-    src/fast_gicp/cuda/ndt_cuda.cu
-    src/fast_gicp/cuda/ndt_compute_derivatives.cu
-  )
-  target_include_directories(fast_vgicp_cuda PRIVATE
-    include
-    thirdparty/Eigen
-    thirdparty/nvbio
-    ${catkin_INCLUDE_DIRS}
-  )
-  target_link_libraries(fast_vgicp_cuda
-    ${catkin_LIBRARIES}
-  )
-  cuda_add_cublas_to_target(fast_vgicp_cuda)
-
-  # add vgicp_cuda to libfast_gicp
-  target_sources(fast_gicp PRIVATE
-    src/fast_gicp/gicp/fast_vgicp_cuda.cpp
-    src/fast_gicp/ndt/ndt_cuda.cpp
-  )
-  target_link_libraries(fast_gicp
-    fast_vgicp_cuda
-  )
-  add_dependencies(fast_gicp fast_vgicp_cuda)
-  if(catkin_FOUND)
-    install(TARGETS fast_vgicp_cuda
-      LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
-  elseif (ament_cmake_FOUND)
-    install(TARGETS fast_vgicp_cuda
-      LIBRARY DESTINATION lib)
-  endif()
-endif()
-
-### TEST ###
-if(BUILD_test)
-  find_package(GTest REQUIRED)
-
-  add_executable(gicp_test src/test/gicp_test.cpp)
-  add_dependencies(gicp_test fast_gicp)
-  target_link_libraries(gicp_test ${GTEST_LIBRARIES} ${PCL_LIBRARIES} fast_gicp)
-  gtest_add_tests(TARGET gicp_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} EXTRA_ARGS "${CMAKE_SOURCE_DIR}/data")
-endif()
-
-if(catkin_FOUND)
-  ###################################
-  ## catkin specific configuration ##
-  ###################################
-  install(TARGETS ${PROJECT_NAME}
-    LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
-
-  install(DIRECTORY include/
-    DESTINATION ${CATKIN_GLOBAL_INCLUDE_DESTINATION}
-    FILES_MATCHING PATTERN "*.hpp")
-elseif (ament_cmake_FOUND)
-  ##################################
-  ## ament specific configuration ##
-  ##################################
-  ament_export_include_directories(include)
-  ament_export_libraries(fast_gicp)
-  ament_package()
-
-  install(TARGETS ${PROJECT_NAME}
-    LIBRARY DESTINATION lib)
-
-  install(
-      DIRECTORY "include/"
-      DESTINATION include
-    )
+ament_auto_package()
 endif()
