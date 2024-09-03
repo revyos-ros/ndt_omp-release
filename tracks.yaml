@@ -1,3 +1,4 @@
+release_repo_url: git@github.com:revyos-ros/ndt_omp-release
 tracks:
   humble:
     actions:
