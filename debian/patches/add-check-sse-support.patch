@@ -1,0 +1,54 @@
+From c090dc6b21b1c494a5767d5c5456188824223397 Mon Sep 17 00:00:00 2001
+From: Zheng Junjie <zhengjunjie@iscas.ac.cn>
+Date: Tue, 3 Sep 2024 11:09:59 +0800
+Subject: [PATCH] add check sse support.
+
+---
+ CMakeLists.txt | 28 ++++++++++++++++++++++++++--
+ 1 file changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3a8ba80..761805f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -4,11 +4,35 @@ project(ndt_omp)
+ add_definitions(-std=c++14)
+ set(CMAKE_CXX_FLAGS "-std=c++14")
+ 
++include(CheckCXXCompilerFlag)
++
+ if (BUILD_WITH_MARCH_NATIVE)
+   add_compile_options(-march=native)
+ else()
+-  add_definitions(-msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2)
+-  set(CMAKE_CXX_FLAGS "-msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2")
++  check_cxx_compiler_flag("-msse"    COMPILER_SUPPORTS_SSE)
++  check_cxx_compiler_flag("-msse2"   COMPILER_SUPPORTS_SSE2)
++  check_cxx_compiler_flag("-msee3"   COMPILER_SUPPORTS_SSE3)
++  check_cxx_compiler_flag("-msee4"   COMPILER_SUPPORTS_SSE4)
++  check_cxx_compiler_flag("-msee4.1" COMPILER_SUPPORTS_SSE4_1)
++  check_cxx_compiler_flag("-msee4.2" COMPILER_SUPPORTS_SSE4_2)
++  if (COMPILER_SUPPORTS_SSE)
++    add_compile_options(-msse)
++  endif()
++  if (COMPILER_SUPPORTS_SSE2)
++    add_compile_options(-msse2)
++  endif()
++    if (COMPILER_SUPPORTS_SSE3)
++    add_compile_options(-msse3)
++  endif()
++  if (COMPILER_SUPPORTS_SSE4)
++    add_compile_options(-msse4)
++  endif()
++  if (COMPILER_SUPPORTS_SSE4_1)
++    add_compile_options(-msse4.1)
++  endif()
++  if (COMPILER_SUPPORTS_SSE4_2)
++    add_compile_options(-msse4.2)
++  endif()
+ endif()
+ 
+ # pcl 1.7 causes a segfault when it is built with debug mode
+-- 
+2.45.2
+
